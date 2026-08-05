@@ -28,7 +28,7 @@ MANIFEST
 .coverage
 htmlcov/
 .env
-
+.ruff_cache
 # Node.js / Frontend
 node_modules/
 .next/

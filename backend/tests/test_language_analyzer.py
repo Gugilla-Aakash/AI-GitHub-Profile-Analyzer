@@ -1,4 +1,5 @@
 import pytest
+
 from app.analyzers.language_analyzer import LanguageAnalyzer
 
 

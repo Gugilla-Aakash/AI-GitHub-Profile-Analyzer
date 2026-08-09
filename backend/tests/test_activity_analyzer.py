@@ -1,4 +1,5 @@
 import pytest
+
 from app.analyzers.activity_analyzer import ActivityAnalyzer
 
 

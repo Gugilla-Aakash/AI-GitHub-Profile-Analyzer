@@ -1,7 +1,8 @@
+from typing import cast
+
 from google import genai
 from google.genai import types
 
-from typing import cast
 from app.clients.llm.base import BaseLLMProvider
 from app.config import settings
 

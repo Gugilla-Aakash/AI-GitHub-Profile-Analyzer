@@ -15,5 +15,6 @@ weasyprint
 google-generativeai>=0.4.0
 groq>=0.4.2
 google-genai
+httpx2
 # Custom Core Library
 hakiapi

@@ -1,0 +1,22 @@
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+html {
+  scroll-behavior: smooth;
+}
+
+/*
+  Light Mode Defaults
+  The background must match the components perfectly for Neumorphism to work
+*/
+body {
+  @apply bg-neo-light text-gray-800 transition-colors duration-300;
+}
+
+/*
+  Dark Mode Overrides
+*/
+.dark body {
+  @apply bg-neo-dark text-gray-200;
+  color-scheme: dark;
+}

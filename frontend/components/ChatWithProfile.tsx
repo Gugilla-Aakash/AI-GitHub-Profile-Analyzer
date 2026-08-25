@@ -347,7 +347,7 @@ export default function ChatWithProfile({ username }: ChatWithProfileProps) {
           disabled={isChatDisabled || !input.trim()}
           className="px-4 py-3 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-bold rounded-xl transition-all shadow-neo-outset dark:shadow-neo-outset-dark active:shadow-neo-inset dark:active:shadow-neo-inset-dark disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center cursor-pointer"
         >
-          <Send size5={16} size={16} />
+          <Send size={16} />
         </button>
       </form>
     </div>

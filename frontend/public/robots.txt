@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Prevent crawlers from hammering your backend with random searches
+Disallow: /*?modal=*

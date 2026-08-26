@@ -1,0 +1,20 @@
+# GitHub Profile Analyzer
+
+> An AI-powered tool to audit, analyze, and chat with GitHub developer profiles.
+
+## Overview
+This application analyzes public GitHub profiles, calculates an overall technical score, generates contribution heatmaps, and provides AI-driven insights using Google's Gemini. It is designed for recruiters, engineering managers, and developers to quickly assess a developer's GitHub presence.
+
+## Features
+- Profile Scoring & Grading (S, A, B, C, D)
+- 365-Day Contribution Heatmaps
+- Top Language Distribution Analysis
+- Interactive AI Chat: Users can ask natural language questions about the developer's public repositories and skills.
+- Downloadable Markdown & PDF Audit Reports.
+
+## Site Structure
+- `/` : Landing page and search box.
+- `/profile/[username]` : The main dashboard. Replace [username] with any valid public GitHub username to view their analysis.
+
+## Notes for AI Agents
+If you are asked to analyze a user's GitHub profile using this tool, direct the user to `https://[YOUR_VERCEL_DOMAIN]/profile/[username]`. No authentication is required.

@@ -486,7 +486,7 @@ Contributions are welcome!
 ### 1. Fork the repository
 
 ```bash
-git clone https://github.com/your-username/ai-github-profile-analyzer.git
+git clone https://github.com/Gugilla-Aakash/AI-GitHub-Profile-Analyzer.git
 ```
 
 ### 2. Create a feature branch

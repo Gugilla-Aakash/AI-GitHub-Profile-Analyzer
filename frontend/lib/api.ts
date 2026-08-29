@@ -1,6 +1,10 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const rawBaseUrl = (
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+).replace(/\/+$/, "");
 
+const API_BASE_URL = rawBaseUrl.endsWith("/api/v1")
+  ? rawBaseUrl
+  : `${rawBaseUrl}/api/v1`;
 export interface ProfileAnalysisResult {
   username: string;
   final_score: number;

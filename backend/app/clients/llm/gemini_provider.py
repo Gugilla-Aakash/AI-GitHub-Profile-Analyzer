@@ -15,7 +15,7 @@ class GeminiProvider(BaseLLMProvider):
             raise ValueError("GEMINI_API_KEY is not configured.")
 
         self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        self.model = "gemini-2.5-flash"
+        self.model = "gemini-3.6-flash"
 
     def chat(
         self,

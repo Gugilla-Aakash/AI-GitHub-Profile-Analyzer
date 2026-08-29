@@ -15,7 +15,7 @@ class GroqProvider(BaseLLMProvider):
             raise ValueError("GROQ_API_KEY is not provided")
 
         self.client = Groq(api_key=settings.GROQ_API_KEY)
-        self.model = "llama-3.3-70b-versatile"
+        self.model = "openai/gpt-oss-20b"
 
     def chat(
         self,

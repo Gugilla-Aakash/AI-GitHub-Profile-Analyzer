@@ -4,20 +4,58 @@
 
 ### AI-Powered GitHub Developer Intelligence & Profile Auditing
 
-[![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=for-the-badge\&logo=next.js\&logoColor=white)](https://nextjs.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=for-the-badge\&logo=fastapi\&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge\&logo=python\&logoColor=white)](https://www.python.org/)
-[![Redis](https://img.shields.io/badge/Redis-Queue-DC382D?style=for-the-badge\&logo=redis\&logoColor=white)](https://redis.io/)
-[![Gemini](https://img.shields.io/badge/Google-Gemini-4285F4?style=for-the-badge\&logo=google\&logoColor=white)](https://ai.google.dev/)
+[![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Redis](https://img.shields.io/badge/Redis-Queue-DC382D?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io/)
+[![Gemini](https://img.shields.io/badge/Google-Gemini-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev/)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
+
+[![Stars](https://img.shields.io/github/stars/Gugilla-Aakash/AI-GitHub-Profile-Analyzer?style=flat-square&color=8b5cf6)](https://github.com/Gugilla-Aakash/AI-GitHub-Profile-Analyzer/stargazers)
+[![Last Commit](https://img.shields.io/github/last-commit/Gugilla-Aakash/AI-GitHub-Profile-Analyzer?style=flat-square&color=8b5cf6)](https://github.com/Gugilla-Aakash/AI-GitHub-Profile-Analyzer/commits)
+[![Issues](https://img.shields.io/github/issues/Gugilla-Aakash/AI-GitHub-Profile-Analyzer?style=flat-square&color=8b5cf6)](https://github.com/Gugilla-Aakash/AI-GitHub-Profile-Analyzer/issues)
 
 **Audit • Analyze • Score • Chat**
 
 An intelligent full-stack platform that analyzes GitHub developer profiles, evaluates engineering activity, and lets you interact with repository insights using AI.
 
-[🚀 Live Demo](#) · [🐛 Report Bug](#) · [💡 Request Feature](#)
+[🚀 Live Demo](https://ai-git-hub-profile-analyzer.vercel.app/) · [🐛 Report Bug](https://github.com/Gugilla-Aakash/AI-GitHub-Profile-Analyzer/issues) · [💡 Request Feature](https://github.com/Gugilla-Aakash/AI-GitHub-Profile-Analyzer/issues)
 
 </div>
+
+---
+
+## 📸 Preview
+
+<div align="center">
+
+**Landing Page**
+<img src="assets/screenshots/landing-page.png" alt="AI GitHub Profile Analyzer — Landing Page" width="100%">
+
+<br>
+
+**Developer Dashboard — Live Analysis**
+<img src="assets/screenshots/dashboard-analysis.png" alt="AI GitHub Profile Analyzer — Dashboard" width="100%">
+
+</div>
+
+---
+
+## 📑 Table of Contents
+
+- [Overview](#-overview)
+- [Key Features](#-key-features)
+- [Architecture](#️-architecture)
+- [Getting Started](#️-getting-started)
+- [Backend Setup](#️-backend-setup)
+- [Frontend Setup](#-frontend-setup)
+- [Project Structure](#-project-structure)
+- [How It Works](#-how-it-works)
+- [Use Cases](#-use-cases)
+- [Roadmap](#-roadmap)
+- [Security](#-security)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ---
 
@@ -129,27 +167,27 @@ The application follows a **decoupled full-stack architecture** designed for res
 ### 💻 Frontend
 
 | Technology               | Purpose                      |
-| ------------------------ | ---------------------------- |
+| ------------------------ | ----------------------------- |
 | **Next.js 14**           | React framework & App Router |
-| **React**                | UI development               |
-| **Tailwind CSS**         | Styling & design system      |
-| **Framer Motion**        | Animations & interactions    |
-| **TanStack React Query** | Server state & data fetching |
-| **Lucide React**         | Icon system                  |
+| **React**                | UI development                |
+| **Tailwind CSS**         | Styling & design system       |
+| **Framer Motion**        | Animations & interactions     |
+| **TanStack React Query** | Server state & data fetching  |
+| **Lucide React**         | Icon system                   |
 
 ### ⚙️ Backend & Infrastructure
 
 | Technology          | Purpose                                |
-| ------------------- | -------------------------------------- |
-| **FastAPI**         | REST API                               |
-| **Python 3.11+**    | Backend & data processing              |
-| **Pydantic**        | Data validation                        |
-| **Redis**           | Queue & caching                        |
-| **RQ**              | Background job processing              |
-| **Google Gemini**   | AI analysis & conversational assistant |
-| **WeasyPrint**      | PDF report generation                  |
-| **Jinja2**          | HTML report templates                  |
-| **GitHub REST API** | Developer & repository data            |
+| -------------------- | --------------------------------------- |
+| **FastAPI**          | REST API                                |
+| **Python 3.11+**     | Backend & data processing               |
+| **Pydantic**         | Data validation                         |
+| **Redis**            | Queue & caching                         |
+| **RQ**               | Background job processing               |
+| **Google Gemini**    | AI analysis & conversational assistant  |
+| **WeasyPrint**       | PDF report generation                   |
+| **Jinja2**           | HTML report templates                   |
+| **GitHub REST API**  | Developer & repository data             |
 
 ---
 
@@ -221,11 +259,12 @@ REDIS_URL=redis://localhost:6379/0
 
 ### 🔐 Environment Variables
 
-| Variable         | Description                  |
-| ---------------- | ---------------------------- |
-| `GITHUB_TOKEN`   | GitHub Personal Access Token |
-| `GEMINI_API_KEY` | Google Gemini API key        |
-| `REDIS_URL`      | Redis connection URL         |
+| Variable          | Description                    |
+| ------------------ | ------------------------------- |
+| `GITHUB_TOKEN`     | GitHub Personal Access Token   |
+| `GEMINI_API_KEY`   | Google Gemini API key          |
+| `GROQ_API_KEY`     | Groq API key                   |
+| `REDIS_URL`        | Redis connection URL           |
 
 > ⚠️ Never commit your `.env` file or expose API keys publicly.
 
@@ -374,6 +413,9 @@ Open **http://localhost:3000** in your browser and start analyzing GitHub profil
 │   ├── public/                 # Static assets
 │   ├── tailwind.config.js      # Tailwind configuration
 │   └── package.json
+│
+├── assets/
+│   └── screenshots/            # README preview images
 │
 ├── .gitignore
 ├── LICENSE

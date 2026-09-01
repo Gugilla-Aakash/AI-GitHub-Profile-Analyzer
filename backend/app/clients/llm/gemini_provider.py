@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import cast
 
 from google import genai
@@ -17,12 +18,12 @@ class GeminiProvider(BaseLLMProvider):
         self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
         self.model = "gemini-3.6-flash"
 
-    def chat(
+    def _prepare_request(
         self,
         context: str,
         history: list[dict[str, str]],
         message: str,
-    ) -> str:
+    ) -> tuple[types.GenerateContentConfig, list[types.Content]]:
         system_instruction = (
             "You are an AI assistant specifically designed to answer questions about "
             "the provided GitHub developer profile.\n\n"
@@ -69,10 +70,34 @@ class GeminiProvider(BaseLLMProvider):
             )
         )
 
+        return config, contents
+
+    def chat(
+        self,
+        context: str,
+        history: list[dict[str, str]],
+        message: str,
+    ) -> str:
+        config, contents = self._prepare_request(context, history, message)
         response = self.client.models.generate_content(
             model=self.model,
             contents=cast(types.ContentListUnionDict, contents),
             config=config,
         )
-
         return response.text.strip() if response.text else ""
+
+    def stream_chat(
+        self,
+        context: str,
+        history: list[dict[str, str]],
+        message: str,
+    ) -> Iterator[str]:
+        config, contents = self._prepare_request(context, history, message)
+        response_stream = self.client.models.generate_content_stream(
+            model=self.model,
+            contents=cast(types.ContentListUnionDict, contents),
+            config=config,
+        )
+        for chunk in response_stream:
+            if chunk.text:
+                yield chunk.text

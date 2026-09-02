@@ -195,8 +195,11 @@ export default function ActivityHeatmap({
   useEffect(() => {
     if (scrollContainerRef.current) {
       requestAnimationFrame(() => {
-        scrollContainerRef.current!.scrollLeft =
-          scrollContainerRef.current!.scrollWidth;
+        // Fix: Safety null check inside the animation frame
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollLeft =
+            scrollContainerRef.current.scrollWidth;
+        }
       });
     }
   }, [weeks]);

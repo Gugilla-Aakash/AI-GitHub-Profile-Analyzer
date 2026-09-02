@@ -28,7 +28,7 @@ class TestGeminiProviderInit(unittest.TestCase):
         provider = GeminiProvider()
 
         mock_client_cls.assert_called_once_with(api_key="fake-api-key-for-tests")
-        self.assertEqual(provider.model, "gemini-2.5-flash")
+        self.assertEqual(provider.model, "gemini-3.6-flash")
 
 
 class TestGeminiProviderChat(unittest.TestCase):
@@ -77,7 +77,7 @@ class TestGeminiProviderChat(unittest.TestCase):
         provider.chat(context="ctx", history=[], message="hi")
 
         _, kwargs = self.mock_client_instance.models.generate_content.call_args
-        self.assertEqual(kwargs["model"], "gemini-2.5-flash")
+        self.assertEqual(kwargs["model"], "gemini-3.6-flash")
 
     def test_system_instruction_includes_context(self):
         self.mock_client_instance.models.generate_content.return_value = MagicMock(

@@ -33,7 +33,7 @@ class TestInit:
         provider = GroqProvider()
 
         client_cls.assert_called_once_with(api_key="fake-api-key")
-        assert provider.model == "llama-3.3-70b-versatile"
+        assert provider.model == "openai/gpt-oss-20b"
 
 
 class TestChat:
@@ -76,7 +76,7 @@ class TestChat:
         provider.chat(context="ctx", history=[], message="hi")
 
         _, kwargs = client_instance.chat.completions.create.call_args
-        assert kwargs["model"] == "llama-3.3-70b-versatile"
+        assert kwargs["model"] == "openai/gpt-oss-20b"
         assert kwargs["temperature"] == 0.2
 
     def test_system_prompt_includes_context(self, mock_settings, mock_groq_client):

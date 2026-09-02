@@ -5,6 +5,7 @@ const rawBaseUrl = (
 const API_BASE_URL = rawBaseUrl.endsWith("/api/v1")
   ? rawBaseUrl
   : `${rawBaseUrl}/api/v1`;
+
 export interface ProfileAnalysisResult {
   username: string;
   final_score: number;
@@ -59,7 +60,6 @@ export interface AnalysisJobResponse {
   result?: ProfileAnalysisResult;
   message?: string;
 }
-// Core Analysis Endpoints
 
 export async function startAnalysis(
   username: string,
@@ -84,9 +84,7 @@ export async function getAnalysisStatus(
   }
   return res.json();
 }
-// Session-Based AI Chat Endpoints
 
-// Function 1: Initialize Chat Session
 export async function startChat(
   username: string,
 ): Promise<{ session_id: string }> {
@@ -102,10 +100,10 @@ export async function startChat(
   return res.json();
 }
 
-// Function 2: Send Message in Active Session
-export async function sendChatMessage(
+export async function streamChatMessage(
   sessionId: string,
   message: string,
+  onChunk: (accumulatedText: string) => void,
 ): Promise<string> {
   const res = await fetch(`${API_BASE_URL}/chat/message`, {
     method: "POST",
@@ -121,10 +119,24 @@ export async function sendChatMessage(
     throw new Error(err.detail || err.message || "Failed to send message.");
   }
 
-  const data = await res.json();
-  return data.response || data.reply || data.message || "No response received.";
+  if (!res.body) {
+    throw new Error("No response stream available.");
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let accumulatedText = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = decoder.decode(value, { stream: true });
+    accumulatedText += chunk;
+    onChunk(accumulatedText);
+  }
+
+  return accumulatedText;
 }
-// Auxiliary Helpers
 
 export async function searchUsers(
   query: string,
@@ -137,34 +149,28 @@ export async function searchUsers(
   return res.json();
 }
 
-// Fetch Real WeasyPrint Binary Stream
 export async function downloadPdfReportBlob(username: string): Promise<Blob> {
   const res = await fetch(
     `${API_BASE_URL}/report/${encodeURIComponent(username)}?format=pdf`,
   );
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(
       err.detail || err.message || "Failed to generate PDF report.",
     );
   }
-
   return res.blob();
 }
 
-// Fetch Markdown Report
 export async function fetchMarkdownReport(username: string): Promise<string> {
   const res = await fetch(
     `${API_BASE_URL}/report/${encodeURIComponent(username)}?format=md`,
   );
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(
       err.detail || err.message || "Could not fetch Markdown report.",
     );
   }
-
   return res.text();
 }

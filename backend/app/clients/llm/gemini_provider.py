@@ -7,15 +7,23 @@ from google.genai import types
 from app.clients.llm.base import BaseLLMProvider
 from app.config import settings
 
+# Global shared client to prevent socket/connection leaks
+_gemini_client = None
+
 
 class GeminiProvider(BaseLLMProvider):
     """Gemini LLM provider using the google-genai SDK."""
 
     def __init__(self) -> None:
+        global _gemini_client
         if not settings.GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY is not configured.")
 
-        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        # Only initialize the client once per server lifecycle
+        if _gemini_client is None:
+            _gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+
+        self.client = _gemini_client
         self.model = "gemini-3.6-flash"
 
     def _prepare_request(
@@ -98,6 +106,13 @@ class GeminiProvider(BaseLLMProvider):
             contents=cast(types.ContentListUnionDict, contents),
             config=config,
         )
-        for chunk in response_stream:
-            if chunk.text:
-                yield chunk.text
+        try:
+            for chunk in response_stream:
+                if chunk.text:
+                    yield chunk.text
+        finally:
+            # MAGIC FIX: Explicitly force the SDK to release the TCP socket
+            # Using getattr to appease Pyright since Iterator doesn't strictly define .close()
+            close_method = getattr(response_stream, "close", None)
+            if callable(close_method):
+                close_method()

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { startChat, sendChatMessage } from "../lib/api";
+import { startChat, streamChatMessage } from "../lib/api";
 import { Sparkles, Send, RotateCcw } from "lucide-react";
 
 interface Message {
@@ -30,7 +30,6 @@ export default function ChatWithProfile({ username }: ChatWithProfileProps) {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
-  // Reference directly to the chat feed container to control scrollTop safely
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const prevMessageCountRef = useRef(0);
 
@@ -41,7 +40,6 @@ export default function ChatWithProfile({ username }: ChatWithProfileProps) {
     }
   };
 
-  // Only auto-scroll when a *new* message is added, ignoring initial load/reload hydration
   useEffect(() => {
     if (messages.length > prevMessageCountRef.current) {
       scrollToBottom();
@@ -88,7 +86,7 @@ export default function ChatWithProfile({ username }: ChatWithProfileProps) {
   }, [username]);
 
   useEffect(() => {
-    if (sessionId) {
+    if (sessionId && messages.length > 0) {
       localStorage.setItem(
         `chat_messages_${username}`,
         JSON.stringify(messages),
@@ -109,7 +107,6 @@ export default function ChatWithProfile({ username }: ChatWithProfileProps) {
     const query = (questionText || input).trim();
     if (!query || isLoading) return;
 
-    // If session is missing entirely, try to spin one up on the fly before sending
     if (!currentSessionId) {
       currentSessionId = await initializeNewSession();
       if (!currentSessionId) {
@@ -127,24 +124,31 @@ export default function ChatWithProfile({ username }: ChatWithProfileProps) {
     }
 
     setInput("");
-    const updatedMessages: Message[] = [
-      ...messages,
+
+    setMessages((prev) => [
+      ...prev,
       { role: "user", content: query },
-    ];
-    setMessages(updatedMessages);
+      { role: "assistant", content: "" },
+    ]);
     setIsLoading(true);
 
     try {
-      const responseText = await sendChatMessage(currentSessionId, query);
-      const finalMsgs: Message[] = [
-        ...updatedMessages,
-        { role: "assistant", content: responseText },
-      ];
-      setMessages(finalMsgs);
+      await streamChatMessage(currentSessionId, query, (chunkText) => {
+        setMessages((prev) => {
+          const next = [...prev];
+          if (next.length > 0) {
+            next[next.length - 1] = {
+              role: "assistant",
+              content: chunkText,
+            };
+          }
+          return next;
+        });
+        scrollToBottom();
+      });
     } catch (err: any) {
       const errorMessage = err?.message || "";
 
-      // AUTO-HEAL: If session expired/not found, automatically reset and retry once!
       if (
         errorMessage.toLowerCase().includes("expired") ||
         errorMessage.toLowerCase().includes("not found")
@@ -154,28 +158,37 @@ export default function ChatWithProfile({ username }: ChatWithProfileProps) {
 
         if (freshSessionId) {
           try {
-            const retryResponse = await sendChatMessage(freshSessionId, query);
-            setMessages([
-              ...updatedMessages,
-              { role: "assistant", content: retryResponse },
-            ]);
+            await streamChatMessage(freshSessionId, query, (chunkText) => {
+              setMessages((prev) => {
+                const next = [...prev];
+                if (next.length > 0) {
+                  next[next.length - 1] = {
+                    role: "assistant",
+                    content: chunkText,
+                  };
+                }
+                return next;
+              });
+              scrollToBottom();
+            });
             setIsLoading(false);
             return;
-          } catch (retryErr: any) {
-            // Fallthrough to standard error display if retry fails
+          } catch {
+            // Fall through to error handler
           }
         }
       }
 
-      setMessages([
-        ...updatedMessages,
-        {
+      setMessages((prev) => {
+        const next = [...prev];
+        next[next.length - 1] = {
           role: "assistant",
           content:
             errorMessage ||
             "Sorry, I failed to process that question. Please try again.",
-        },
-      ]);
+        };
+        return next;
+      });
     } finally {
       setIsLoading(false);
     }
@@ -241,7 +254,7 @@ export default function ChatWithProfile({ username }: ChatWithProfileProps) {
         </div>
       )}
 
-      {/* Chat Feed Container with ref */}
+      {/* Chat Feed Container */}
       <div
         ref={chatContainerRef}
         className="p-4 bg-neo-light dark:bg-neo-dark shadow-neo-inset dark:shadow-neo-inset-dark rounded-2xl space-y-3 max-h-96 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 dark:scrollbar-thumb-gray-700"
@@ -261,62 +274,102 @@ export default function ChatWithProfile({ username }: ChatWithProfileProps) {
             }`}
           >
             <div
-              className={`max-w-[85%] px-4 py-3 rounded-2xl text-xs leading-relaxed ${
+              className={`max-w-[95%] px-4 py-3 rounded-2xl text-xs leading-relaxed ${
                 msg.role === "user"
                   ? "bg-indigo-500 text-white rounded-br-none shadow-md"
-                  : "bg-neo-light dark:bg-neo-dark shadow-neo-outset dark:shadow-neo-outset-dark text-gray-700 dark:text-gray-200 rounded-bl-none"
+                  : "bg-neo-light dark:bg-neo-dark shadow-neo-outset dark:shadow-neo-outset-dark text-gray-700 dark:text-gray-200 rounded-bl-none overflow-x-hidden break-words"
               }`}
             >
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  p: ({ children }) => (
-                    <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>
-                  ),
-                  ul: ({ children }) => (
-                    <ul className="list-disc pl-4 mb-2 space-y-1 my-1">
-                      {children}
-                    </ul>
-                  ),
-                  ol: ({ children }) => (
-                    <ol className="list-decimal pl-4 mb-2 space-y-1 my-1">
-                      {children}
-                    </ol>
-                  ),
-                  li: ({ children }) => <li className="text-xs">{children}</li>,
-                  h1: ({ children }) => (
-                    <h1 className="text-sm font-bold mb-2 border-b border-gray-300 dark:border-gray-700 pb-1 mt-1">
-                      {children}
-                    </h1>
-                  ),
-                  h2: ({ children }) => (
-                    <h2 className="text-xs font-bold text-indigo-400 mb-1.5 mt-2 uppercase tracking-wide">
-                      {children}
-                    </h2>
-                  ),
-                  strong: ({ children }) => (
-                    <strong className="font-bold">{children}</strong>
-                  ),
-                  code: ({ children }) => (
-                    <code className="bg-gray-200 dark:bg-gray-900 text-indigo-500 px-1.5 py-0.5 rounded text-[11px] font-mono">
-                      {children}
-                    </code>
-                  ),
-                }}
-              >
-                {msg.content}
-              </ReactMarkdown>
+              {!msg.content && msg.role === "assistant" && isLoading ? (
+                <div className="flex items-center gap-2 text-gray-400 font-medium py-1">
+                  <span className="w-2 h-2 bg-indigo-500 rounded-full animate-ping" />
+                  Thinking...
+                </div>
+              ) : (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    p: ({ children }) => (
+                      <p className="mb-2 last:mb-0 leading-relaxed">
+                        {children}
+                      </p>
+                    ),
+                    ul: ({ children }) => (
+                      <ul className="list-disc pl-4 mb-2 space-y-1 my-1">
+                        {children}
+                      </ul>
+                    ),
+                    ol: ({ children }) => (
+                      <ol className="list-decimal pl-4 mb-2 space-y-1 my-1">
+                        {children}
+                      </ol>
+                    ),
+                    li: ({ children }) => (
+                      <li className="text-xs">{children}</li>
+                    ),
+                    h1: ({ children }) => (
+                      <h1 className="text-sm font-bold mb-2 border-b border-gray-300 dark:border-gray-700 pb-1 mt-1">
+                        {children}
+                      </h1>
+                    ),
+                    h2: ({ children }) => (
+                      <h2 className="text-xs font-bold text-indigo-400 mb-1.5 mt-2 uppercase tracking-wide">
+                        {children}
+                      </h2>
+                    ),
+                    strong: ({ children }) => (
+                      <strong className="font-bold">{children}</strong>
+                    ),
+                    // MAGIC FIX: Removed whitespace-nowrap and overflow constraints
+                    // Added break-words so the table naturally fits the chat bubble width
+                    table: ({ children }) => (
+                      <div className="w-full my-3 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                        <table className="w-full text-left text-xs break-words">
+                          {children}
+                        </table>
+                      </div>
+                    ),
+                    thead: ({ children }) => (
+                      <thead className="bg-gray-100 dark:bg-gray-800">
+                        {children}
+                      </thead>
+                    ),
+                    // Aligned to top so multi-line text doesn't look awkward
+                    th: ({ children }) => (
+                      <th className="px-2 py-2 font-bold border-b border-gray-200 dark:border-gray-700 align-top">
+                        {children}
+                      </th>
+                    ),
+                    td: ({ children }) => (
+                      <td className="px-2 py-2 border-b border-gray-200 dark:border-gray-700 align-top">
+                        {children}
+                      </td>
+                    ),
+                    // Code blocks MUST still scroll horizontally, otherwise long code breaks the UI layout
+                    pre: ({ children }) => (
+                      <div className="overflow-x-auto w-full my-2 bg-gray-200 dark:bg-gray-900 p-3 rounded-lg">
+                        <pre className="text-[11px] font-mono">{children}</pre>
+                      </div>
+                    ),
+                    code: ({ children }) => (
+                      <code className="bg-gray-200 dark:bg-gray-900 text-indigo-500 px-1.5 py-0.5 rounded text-[11px] font-mono break-words">
+                        {children}
+                      </code>
+                    ),
+                  }}
+                >
+                  {msg.content}
+                </ReactMarkdown>
+              )}
             </div>
           </div>
         ))}
 
-        {(isLoading || isInitializingSession) && (
+        {isInitializingSession && (
           <div className="flex justify-start">
             <div className="bg-neo-light dark:bg-neo-dark shadow-neo-outset dark:shadow-neo-outset-dark text-gray-400 px-4 py-2.5 rounded-2xl rounded-bl-none text-xs flex items-center gap-2">
               <span className="w-2 h-2 bg-indigo-500 rounded-full animate-ping" />
-              {isInitializingSession
-                ? "Starting session..."
-                : "Analyzing profile context..."}
+              Starting session...
             </div>
           </div>
         )}

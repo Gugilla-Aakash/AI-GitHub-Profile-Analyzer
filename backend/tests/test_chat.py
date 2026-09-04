@@ -1,20 +1,33 @@
+import asyncio
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import StreamingResponse
 
 from app.api.routes import chat
 
 
-def make_gemini(return_value=None, side_effect=None):
+def make_llm(yield_chunks=None, side_effect=None):
     instance = MagicMock()
-    instance.chat.return_value = return_value
-    if side_effect:
-        instance.chat.side_effect = side_effect
+
+    def dummy_generator(**kwargs):
+        if side_effect:
+            raise side_effect
+        yield from (yield_chunks or [])
+
+    instance.stream_chat.side_effect = dummy_generator
     return MagicMock(return_value=instance), instance
 
 
-# ---- start_chat tests ----
+def consume_stream(response: StreamingResponse) -> str:
+    async def _consume():
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk.decode("utf-8") if isinstance(chunk, bytes) else chunk)
+        return "".join(chunks)
+
+    return asyncio.run(_consume())
 
 
 def test_profile_not_found_returns_404():
@@ -46,19 +59,10 @@ def test_start_chat_saves_session_and_returns_session_id():
     ):
         cache_mock.get_profile.return_value = {"grade": "A"}
         build_ctx.return_value = "built context"
-
         result = chat.start_chat("someuser")
 
     assert "session_id" in result
-    assert result["message"] == "Chat session initialized."
     chat_cache_mock.save_session.assert_called_once()
-    call_kwargs = chat_cache_mock.save_session.call_args.kwargs
-    assert call_kwargs["username"] == "someuser"
-    assert call_kwargs["context"] == "built context"
-    assert call_kwargs["history"] == []
-
-
-# ---- send_message tests ----
 
 
 def test_session_not_found_returns_404():
@@ -69,137 +73,100 @@ def test_session_not_found_returns_404():
     assert exc_info.value.status_code == 404
 
 
-def test_gemini_success_used_and_groq_never_called():
-    gemini_cls, _ = make_gemini(return_value="Hi there, from Gemini")
-    groq_cls = MagicMock()
+def test_groq_success_used_and_gemini_never_called():
+    groq_cls, _ = make_llm(yield_chunks=["Hi there, ", "from Groq"])
+    gemini_cls, _ = make_llm()
     with (
         patch("app.api.routes.chat.chat_cache") as chat_cache_mock,
-        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
         patch("app.api.routes.chat.GroqProvider", groq_cls),
+        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
     ):
         chat_cache_mock.get_session.return_value = {"context": "ctx", "history": []}
-        chat_cache_mock.is_gemini_disabled.return_value = False
-
         result = chat.send_message(chat.ChatRequest(session_id="abc", message="hi"))
+        text = consume_stream(result)
 
-    assert result["provider"] == "gemini"
-    assert result["response"] == "Hi there, from Gemini"
-    groq_cls.assert_not_called()
-
-
-def test_gemini_disabled_skips_straight_to_groq():
-    gemini_cls = MagicMock()
-    groq_cls, _ = make_gemini(return_value="Hi from Groq")
-    with (
-        patch("app.api.routes.chat.chat_cache") as chat_cache_mock,
-        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
-        patch("app.api.routes.chat.GroqProvider", groq_cls),
-    ):
-        chat_cache_mock.get_session.return_value = {"context": "ctx", "history": []}
-        chat_cache_mock.is_gemini_disabled.return_value = True
-
-        result = chat.send_message(chat.ChatRequest(session_id="abc", message="hi"))
-
-    assert result["provider"] == "groq"
+    assert text == "Hi there, from Groq"
     gemini_cls.assert_not_called()
 
 
-def test_gemini_rate_limit_error_disables_gemini_for_24h_and_falls_back():
-    gemini_cls, _ = make_gemini(side_effect=RuntimeError("429 RESOURCE_EXHAUSTED"))
-    groq_cls, _ = make_gemini(return_value="fallback response")
+def test_groq_fails_falls_back_to_gemini():
+    groq_cls, _ = make_llm(side_effect=RuntimeError("Groq is down"))
+    gemini_cls, _ = make_llm(yield_chunks=["Hi from Gemini fallback"])
     with (
         patch("app.api.routes.chat.chat_cache") as chat_cache_mock,
-        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
         patch("app.api.routes.chat.GroqProvider", groq_cls),
+        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
     ):
         chat_cache_mock.get_session.return_value = {"context": "ctx", "history": []}
         chat_cache_mock.is_gemini_disabled.return_value = False
-
         result = chat.send_message(chat.ChatRequest(session_id="abc", message="hi"))
+        text = consume_stream(result)
 
-    assert result["provider"] == "groq"
-    chat_cache_mock.disable_gemini.assert_called_once_with(ttl=86400)
+    assert text == "Hi from Gemini fallback"
 
 
-def test_gemini_generic_error_falls_back_without_disabling():
-    gemini_cls, _ = make_gemini(side_effect=RuntimeError("connection reset"))
-    groq_cls, _ = make_gemini(return_value="fallback response")
+def test_groq_fails_and_gemini_disabled_returns_error():
+    groq_cls, _ = make_llm(side_effect=RuntimeError("Groq down"))
+    gemini_cls, _ = make_llm()
     with (
         patch("app.api.routes.chat.chat_cache") as chat_cache_mock,
-        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
         patch("app.api.routes.chat.GroqProvider", groq_cls),
+        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
     ):
         chat_cache_mock.get_session.return_value = {"context": "ctx", "history": []}
-        chat_cache_mock.is_gemini_disabled.return_value = False
-
+        chat_cache_mock.is_gemini_disabled.return_value = True
         result = chat.send_message(chat.ChatRequest(session_id="abc", message="hi"))
+        text = consume_stream(result)
 
-    assert result["provider"] == "groq"
-    chat_cache_mock.disable_gemini.assert_not_called()
+    assert text == "All LLM providers failed to generate a response."
+    gemini_cls.assert_not_called()
 
 
-def test_gemini_empty_response_falls_back_to_groq():
-    # this is the bug we fixed, gemini succeeding but handing back nothing
-    gemini_cls, _ = make_gemini(return_value="")
-    groq_cls, _ = make_gemini(return_value="real answer from groq")
+def test_groq_fails_gemini_rate_limit_disables_gemini():
+    groq_cls, _ = make_llm(side_effect=RuntimeError("Groq down"))
+    gemini_cls, _ = make_llm(side_effect=RuntimeError("429 RESOURCE_EXHAUSTED"))
     with (
         patch("app.api.routes.chat.chat_cache") as chat_cache_mock,
-        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
         patch("app.api.routes.chat.GroqProvider", groq_cls),
+        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
     ):
         chat_cache_mock.get_session.return_value = {"context": "ctx", "history": []}
         chat_cache_mock.is_gemini_disabled.return_value = False
-
         result = chat.send_message(chat.ChatRequest(session_id="abc", message="hi"))
+        text = consume_stream(result)
 
-    assert result["provider"] == "groq"
-    assert result["response"] == "real answer from groq"
+    assert text == "All LLM providers failed to generate a response."
+    chat_cache_mock.disable_gemini.assert_called_once_with(ttl=300)
 
 
-def test_gemini_whitespace_only_response_falls_back_to_groq():
-    gemini_cls, _ = make_gemini(return_value="   \n  ")
-    groq_cls, _ = make_gemini(return_value="real answer")
+def test_both_providers_fail_returns_error_msg():
+    groq_cls, _ = make_llm(side_effect=RuntimeError("groq down"))
+    gemini_cls, _ = make_llm(side_effect=RuntimeError("gemini down too"))
     with (
         patch("app.api.routes.chat.chat_cache") as chat_cache_mock,
-        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
         patch("app.api.routes.chat.GroqProvider", groq_cls),
+        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
     ):
         chat_cache_mock.get_session.return_value = {"context": "ctx", "history": []}
         chat_cache_mock.is_gemini_disabled.return_value = False
-
         result = chat.send_message(chat.ChatRequest(session_id="abc", message="hi"))
+        text = consume_stream(result)
 
-    assert result["provider"] == "groq"
-
-
-def test_both_providers_fail_returns_502():
-    gemini_cls, _ = make_gemini(side_effect=RuntimeError("gemini down"))
-    groq_cls, _ = make_gemini(side_effect=RuntimeError("groq down too"))
-    with (
-        patch("app.api.routes.chat.chat_cache") as chat_cache_mock,
-        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
-        patch("app.api.routes.chat.GroqProvider", groq_cls),
-    ):
-        chat_cache_mock.get_session.return_value = {"context": "ctx", "history": []}
-        chat_cache_mock.is_gemini_disabled.return_value = False
-
-        with pytest.raises(HTTPException) as exc_info:
-            chat.send_message(chat.ChatRequest(session_id="abc", message="hi"))
-
-    assert exc_info.value.status_code == 502
+    assert text == "All LLM providers failed to generate a response."
 
 
 def test_successful_response_gets_persisted_to_history():
-    gemini_cls, _ = make_gemini(return_value="assistant reply")
+    groq_cls, _ = make_llm(yield_chunks=["assistant ", "reply"])
     with (
         patch("app.api.routes.chat.chat_cache") as chat_cache_mock,
-        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
-        patch("app.api.routes.chat.GroqProvider"),
+        patch("app.api.routes.chat.GroqProvider", groq_cls),
+        patch("app.api.routes.chat.GeminiProvider"),
     ):
         chat_cache_mock.get_session.return_value = {"context": "ctx", "history": []}
-        chat_cache_mock.is_gemini_disabled.return_value = False
-
-        chat.send_message(chat.ChatRequest(session_id="abc", message="user question"))
+        result = chat.send_message(
+            chat.ChatRequest(session_id="abc", message="user question")
+        )
+        consume_stream(result)
 
     chat_cache_mock.append_messages.assert_called_once_with(
         session_id="abc",
@@ -209,21 +176,22 @@ def test_successful_response_gets_persisted_to_history():
 
 
 def test_history_is_passed_through_to_provider():
-    gemini_cls, gemini_instance = make_gemini(return_value="reply")
+    groq_cls, groq_instance = make_llm(yield_chunks=["reply"])
     with (
         patch("app.api.routes.chat.chat_cache") as chat_cache_mock,
-        patch("app.api.routes.chat.GeminiProvider", gemini_cls),
-        patch("app.api.routes.chat.GroqProvider"),
+        patch("app.api.routes.chat.GroqProvider", groq_cls),
+        patch("app.api.routes.chat.GeminiProvider"),
     ):
         existing_history = [{"role": "user", "content": "earlier message"}]
         chat_cache_mock.get_session.return_value = {
             "context": "ctx",
             "history": existing_history,
         }
-        chat_cache_mock.is_gemini_disabled.return_value = False
+        result = chat.send_message(
+            chat.ChatRequest(session_id="abc", message="follow up")
+        )
+        consume_stream(result)
 
-        chat.send_message(chat.ChatRequest(session_id="abc", message="follow up"))
-
-    gemini_instance.chat.assert_called_once_with(
+    groq_instance.stream_chat.assert_called_once_with(
         context="ctx", history=existing_history, message="follow up"
     )

@@ -114,9 +114,10 @@ export async function streamChatMessage(
     }),
   });
 
+  // MAGIC FIX: Read error as plain text to prevent JSON parse crashes in the UI
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || err.message || "Failed to send message.");
+    const errorText = await res.text();
+    throw new Error(errorText || `HTTP Error: ${res.status}`);
   }
 
   if (!res.body) {
@@ -124,15 +125,21 @@ export async function streamChatMessage(
   }
 
   const reader = res.body.getReader();
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder("utf-8");
   let accumulatedText = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = decoder.decode(value, { stream: true });
-    accumulatedText += chunk;
-    onChunk(accumulatedText);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value, { stream: true });
+      accumulatedText += chunk;
+      onChunk(accumulatedText);
+    }
+  } finally {
+    // Crucial: Release the lock so the browser can clean up the memory
+    reader.releaseLock();
   }
 
   return accumulatedText;

@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import cast
 
 from groq import Groq
@@ -6,23 +7,31 @@ from groq.types.chat import ChatCompletionMessageParam
 from app.clients.llm.base import BaseLLMProvider
 from app.config import settings
 
+# Global shared client to prevent socket/connection leaks
+_groq_client = None
+
 
 class GroqProvider(BaseLLMProvider):
-    """Groq LLM provider using Llama-3.3-70b."""
+    """Groq LLM provider."""
 
     def __init__(self) -> None:
+        global _groq_client
         if not settings.GROQ_API_KEY:
             raise ValueError("GROQ_API_KEY is not provided")
 
-        self.client = Groq(api_key=settings.GROQ_API_KEY)
+        # Only initialize the client once per server lifecycle
+        if _groq_client is None:
+            _groq_client = Groq(api_key=settings.GROQ_API_KEY)
+
+        self.client = _groq_client
         self.model = "openai/gpt-oss-20b"
 
-    def chat(
+    def _prepare_messages(
         self,
         context: str,
         history: list[dict[str, str]],
         message: str,
-    ) -> str:
+    ) -> list[ChatCompletionMessageParam]:
         system_prompt = (
             "You are an AI assistant specifically designed to answer questions about "
             "the provided GitHub developer profile.\n\n"
@@ -76,11 +85,42 @@ class GroqProvider(BaseLLMProvider):
             )
         )
 
+        return messages
+
+    def chat(
+        self,
+        context: str,
+        history: list[dict[str, str]],
+        message: str,
+    ) -> str:
+        messages = self._prepare_messages(context, history, message)
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             temperature=0.2,
         )
-
         content = response.choices[0].message.content
         return content.strip() if content else ""
+
+    def stream_chat(
+        self,
+        context: str,
+        history: list[dict[str, str]],
+        message: str,
+    ) -> Iterator[str]:
+        messages = self._prepare_messages(context, history, message)
+        response_stream = self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            temperature=0.2,
+            stream=True,
+        )
+        try:
+            for chunk in response_stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+        finally:
+            # MAGIC FIX: Explicitly force the SDK to release the TCP socket
+            if hasattr(response_stream, "close"):
+                response_stream.close()

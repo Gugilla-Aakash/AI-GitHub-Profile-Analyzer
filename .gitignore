@@ -88,3 +88,6 @@ Thumbs.db
 # Generated Files
 
 *.pdf
+
+# CodeXRay project credentials (local only)
+.codexray.json

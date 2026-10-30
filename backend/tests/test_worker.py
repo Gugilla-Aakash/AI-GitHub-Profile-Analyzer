@@ -5,6 +5,8 @@ import sys
 import types
 from unittest.mock import MagicMock
 
+import pytest
+
 # Dynamically resolve root-level worker.py whether tests run from root or tests/
 _worker_file = pathlib.Path(__file__).parent / "worker.py"
 if not _worker_file.exists():
@@ -12,15 +14,28 @@ if not _worker_file.exists():
 WORKER_PATH = str(_worker_file.resolve())
 
 
-def _run_worker_script(monkeypatch):
+def _run_worker_script(monkeypatch, redis_ping_fails: bool = False):
     # worker.py runs real redis/rq connections when executed for real, so we
     # swap those modules out in sys.modules before running the script
 
+    # The worker imports RedisError from redis.exceptions for its ping guard,
+    # so the injected failure must be an instance of that same fake class.
+    fake_exceptions_module = types.ModuleType("redis.exceptions")
+
+    class _RedisError(Exception):
+        pass
+
+    fake_exceptions_module.RedisError = _RedisError
+
     fake_redis_conn = MagicMock()
+    fake_redis_conn.ping.side_effect = (
+        _RedisError("Name or service not known") if redis_ping_fails else None
+    )
     fake_redis_module = types.ModuleType("redis")
     redis_cls_mock = MagicMock()
     redis_cls_mock.from_url.return_value = fake_redis_conn
     fake_redis_module.Redis = redis_cls_mock
+    fake_redis_module.exceptions = fake_exceptions_module
 
     fake_queue_cls = MagicMock()
     fake_worker_instance = MagicMock()
@@ -33,15 +48,26 @@ def _run_worker_script(monkeypatch):
     fake_settings = MagicMock()
     fake_settings.REDIS_URL = "redis://fake-host:6379/0"
 
+    fake_redis_client_module = types.ModuleType("app.cache.redis_client")
+    fake_redis_client_module.REDIS_CONNECT_TIMEOUT = 2
+
     fake_config_module = types.ModuleType("app.config")
     fake_config_module.settings = fake_settings
 
+    fake_cache_module = types.ModuleType("app.cache")
+
     fake_app_module = types.ModuleType("app")
     fake_app_module.config = fake_config_module
+    fake_app_module.cache = fake_cache_module
 
     monkeypatch.setitem(sys.modules, "redis", fake_redis_module)
+    monkeypatch.setitem(sys.modules, "redis.exceptions", fake_exceptions_module)
     monkeypatch.setitem(sys.modules, "rq", fake_rq_module)
     monkeypatch.setitem(sys.modules, "app", fake_app_module)
+    monkeypatch.setitem(sys.modules, "app.cache", fake_cache_module)
+    monkeypatch.setitem(
+        sys.modules, "app.cache.redis_client", fake_redis_client_module
+    )
     monkeypatch.setitem(sys.modules, "app.config", fake_config_module)
 
     runpy.run_path(WORKER_PATH, run_name="__main__")
@@ -60,10 +86,19 @@ def test_redis_connection_created_with_correct_options(monkeypatch):
     result = _run_worker_script(monkeypatch)
     result["redis_module"].Redis.from_url.assert_called_once_with(
         "redis://fake-host:6379/0",
+        socket_connect_timeout=2,
+        socket_keepalive=True,
         health_check_interval=30,
-        socket_connect_timeout=10,
-        socket_timeout=30,
     )
+
+
+def test_worker_exits_cleanly_when_redis_is_unreachable(monkeypatch):
+    # A dead Redis (expired instance, bad DNS) must not crash-loop the
+    # supervisor; the worker should exit(1) before constructing RQ objects.
+    with pytest.raises(SystemExit) as exc_info:
+        _run_worker_script(monkeypatch, redis_ping_fails=True)
+
+    assert exc_info.value.code == 1
 
 
 def test_queue_created_for_default_listen_list(monkeypatch):

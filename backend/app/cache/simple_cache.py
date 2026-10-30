@@ -2,22 +2,23 @@ import json
 import logging
 from typing import Any
 
-import redis
-
+from app.cache.redis_client import get_client
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 class SimpleCache:
-    """Redis-backed profile cache wrapper."""
+    """Redis-backed profile cache wrapper.
+
+    Uses a real Redis connection when one is reachable and transparently falls
+    back to the in-process store otherwise, so a missing Redis instance
+    degrades caching rather than failing every request.
+    """
 
     def __init__(self) -> None:
-        """Initializes the Redis client using the configured Redis URL."""
-        self.client = redis.Redis.from_url(
-            settings.REDIS_URL,
-            decode_responses=True,
-        )
+        """Initializes the cache backend using the configured Redis URL."""
+        self.client = get_client()
 
     def _get_key(self, username: str) -> str:
         """Generates a namespaced and case-insensitive Redis key."""

@@ -10,35 +10,52 @@ MODULE_PATH = "app.cache.simple_cache"
 
 @pytest.fixture
 def cache_module():
-    with (
-        patch("redis.Redis.from_url") as mock_from_url,
-        patch("app.config.settings") as mock_settings,
-    ):
+    with patch("app.config.settings") as mock_settings:
         mock_settings.REDIS_URL = "redis://fake:6379/0"
         mock_settings.CACHE_TTL = 300
 
         mock_redis_instance = MagicMock()
-        mock_from_url.return_value = mock_redis_instance
 
-        sys.modules.pop(MODULE_PATH, None)
-        module = importlib.import_module(MODULE_PATH)
+        # The cache now resolves its backend through the shared factory, so
+        # inject the client instead of patching redis.Redis.from_url.
+        with patch(
+            "app.cache.redis_client.get_client", return_value=mock_redis_instance
+        ):
+            sys.modules.pop(MODULE_PATH, None)
+            module = importlib.import_module(MODULE_PATH)
 
-        yield module, mock_redis_instance, mock_settings
+            yield module, mock_redis_instance, mock_settings
 
-        sys.modules.pop(MODULE_PATH, None)
+            sys.modules.pop(MODULE_PATH, None)
 
 
 class TestInit:
-    def test_creates_redis_client_from_url(self, cache_module):
-        module, _, mock_settings = cache_module
+    def test_uses_the_shared_client_factory(self, cache_module):
+        module, mock_redis_instance, _ = cache_module
 
-        with patch("redis.Redis.from_url") as mock_from_url:
-            module.SimpleCache()
+        cache = module.SimpleCache()
 
-            mock_from_url.assert_called_once_with(
-                mock_settings.REDIS_URL,
-                decode_responses=True,
-            )
+        assert cache.client is mock_redis_instance
+
+    def test_falls_back_to_in_memory_store_when_factory_returns_fallback(self):
+        from app.cache.memory_store import InMemoryRedis
+
+        with (
+            patch("app.config.settings") as mock_settings,
+            patch(
+                "app.cache.redis_client.get_client",
+                return_value=InMemoryRedis(),
+            ),
+        ):
+            mock_settings.CACHE_TTL = 300
+            sys.modules.pop(MODULE_PATH, None)
+            module = importlib.import_module(MODULE_PATH)
+            try:
+                cache = module.SimpleCache()
+                cache.set_profile("octocat", {"grade": "A"})
+                assert cache.get_profile("octocat") == {"grade": "A"}
+            finally:
+                sys.modules.pop(MODULE_PATH, None)
 
 
 class TestGetKey:

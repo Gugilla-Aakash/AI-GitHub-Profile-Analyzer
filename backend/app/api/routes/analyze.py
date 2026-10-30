@@ -1,14 +1,12 @@
 from typing import Any
 
-import redis
 from fastapi import APIRouter, HTTPException, status
 from redis.exceptions import RedisError
-from rq import Queue
 from rq.exceptions import NoSuchJobError
-from rq.job import Job
 
+from app.cache.redis_client import get_client
 from app.cache.simple_cache import cache
-from app.config import settings
+from app.queue import Job, queue
 from app.tasks import analyze_profile_task
 
 router = APIRouter()
@@ -22,10 +20,9 @@ DENYLIST = {
     "github",
 }
 
-# Connection for rq
-redis_conn = redis.Redis.from_url(settings.REDIS_URL)
-
-queue = Queue("default", connection=redis_conn)
+# Connection for job de-duplication locks. Falls back to the in-process store
+# when Redis is unreachable, keeping concurrent-request de-duplication working.
+redis_conn = get_client()
 
 
 @router.post("/{username}")
@@ -33,25 +30,27 @@ def analyze_profile(username: str) -> dict[str, Any]:
     # Normalize username
     normalized_username = username.strip().lower()
 
-    # Checking cache first
-    cached_profile = cache.get_profile(normalized_username)
-    if cached_profile is not None:
-        return {
-            "status": "completed",
-            "cached": True,
-            "message": "Profile found in cache",
-            "result": cached_profile,
-        }
     # Block System accounts
     if normalized_username in DENYLIST:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"'{username}' cannot be analyzed.",
         )
-    # Check in-flight job de-duplication
-    lock_key = f"in_progress:{normalized_username}"
 
     try:
+        # Checking cache first
+        cached_profile = cache.get_profile(normalized_username)
+        if cached_profile is not None:
+            return {
+                "status": "completed",
+                "cached": True,
+                "message": "Profile found in cache",
+                "result": cached_profile,
+            }
+
+        # Check in-flight job de-duplication
+        lock_key = f"in_progress:{normalized_username}"
+
         existing_job_id = redis_conn.get(lock_key)
         if existing_job_id:
             if isinstance(existing_job_id, bytes):
@@ -96,6 +95,11 @@ def get_job_status(job_id: str) -> dict[str, Any]:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found.",
+        ) from exc
+    except RedisError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Unable to connect Redis.",
         ) from exc
 
     job_status = job.get_status()

@@ -61,6 +61,31 @@ export interface AnalysisJobResponse {
   message?: string;
 }
 
+const STORAGE_UNAVAILABLE_MESSAGE =
+  "The service is temporarily unable to reach its storage backend. Please try again in a moment.";
+
+/**
+ * Turns a non-OK response into a readable Error.
+ *
+ * FastAPI returns `{ "detail": "..." }`, but a 5xx can also arrive as HTML or
+ * an empty body, so fall back rather than throwing a JSON parse error.
+ */
+async function toError(res: Response, fallback: string): Promise<Error> {
+  if (res.status === 503) {
+    return new Error(STORAGE_UNAVAILABLE_MESSAGE);
+  }
+  try {
+    const body = await res.json();
+    const detail = body?.detail ?? body?.message;
+    if (typeof detail === "string" && detail.trim()) {
+      return new Error(detail);
+    }
+  } catch {
+    // Non-JSON error body; fall through to the generic message below.
+  }
+  return new Error(`${fallback} (HTTP ${res.status})`);
+}
+
 export async function startAnalysis(
   username: string,
 ): Promise<AnalysisJobResponse> {
@@ -68,8 +93,7 @@ export async function startAnalysis(
     method: "POST",
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || err.message || "Failed to start analysis.");
+    throw await toError(res, "Failed to start analysis.");
   }
   return res.json();
 }
@@ -79,8 +103,7 @@ export async function getAnalysisStatus(
 ): Promise<AnalysisJobResponse> {
   const res = await fetch(`${API_BASE_URL}/analyze/status/${jobId}`);
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || err.message || "Failed to fetch job status.");
+    throw await toError(res, "Failed to fetch job status.");
   }
   return res.json();
 }
@@ -92,10 +115,7 @@ export async function startChat(
     method: "POST",
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(
-      err.detail || err.message || "Failed to initialize chat session.",
-    );
+    throw await toError(res, "Failed to initialize chat session.");
   }
   return res.json();
 }
@@ -149,8 +169,10 @@ export async function searchUsers(
   query: string,
 ): Promise<Array<{ login: string; avatar_url: string }>> {
   if (!query.trim()) return [];
+  // Trailing slash matches the backend route exactly, avoiding a 307 redirect
+  // round-trip on every keystroke.
   const res = await fetch(
-    `${API_BASE_URL}/search?q=${encodeURIComponent(query)}`,
+    `${API_BASE_URL}/search/?q=${encodeURIComponent(query)}`,
   );
   if (!res.ok) return [];
   return res.json();
@@ -161,10 +183,7 @@ export async function downloadPdfReportBlob(username: string): Promise<Blob> {
     `${API_BASE_URL}/report/${encodeURIComponent(username)}?format=pdf`,
   );
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(
-      err.detail || err.message || "Failed to generate PDF report.",
-    );
+    throw await toError(res, "Failed to generate PDF report.");
   }
   return res.blob();
 }
@@ -174,10 +193,7 @@ export async function fetchMarkdownReport(username: string): Promise<string> {
     `${API_BASE_URL}/report/${encodeURIComponent(username)}?format=md`,
   );
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(
-      err.detail || err.message || "Could not fetch Markdown report.",
-    );
+    throw await toError(res, "Could not fetch Markdown report.");
   }
   return res.text();
 }

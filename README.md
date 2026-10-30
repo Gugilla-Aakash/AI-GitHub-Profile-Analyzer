@@ -47,6 +47,7 @@ An intelligent full-stack platform that analyzes public GitHub developer profile
 - [Overview](#overview)
 - [Why This Matters for Hiring](#why-this-matters-for-hiring)
 - [Key Features](#key-features)
+- [Redis Unavailable Fallback](#redis-unavailable-fallback)
 - [How Scoring Works](#how-scoring-works)
 - [Architecture](#architecture)
 - [API Reference](#api-reference)
@@ -198,6 +199,71 @@ Expensive GitHub aggregation and scoring run in the background so the API stays 
 - **In-flight de-duplication:** concurrent requests for the same username reattach to the same job ID with a 10-minute `in_progress:{username}` lock
 - **Cache-first reads:** repeat analyses return instantly with `"cached": true`
 - **Explicit failure mapping:** user-not-found, org account, rate limit, timeout, and internal errors return distinct HTTP codes
+- **Automatic Redis fallback:** if the configured Redis host is unreachable at startup, the service degrades to an in-process store and local job queue instead of returning `500` on every request
+
+> **Redis is optional.** A managed Redis instance can disappear without warning (expired free tier, revoked credentials, deleted DNS record). The backend probes Redis once at startup; if it cannot connect within 2 seconds it logs a warning and continues on an in-process store. See [Redis Unavailable Fallback](#redis-unavailable-fallback) for exactly what changes.
+
+---
+
+## Redis Unavailable Fallback
+
+`backend/app/cache/redis_client.py` owns the decision. On the first call it builds the client from `REDIS_URL` with a short `socket_connect_timeout`, then sends `PING`:
+
+```python
+try:
+    client.ping()
+except redis.RedisError as exc:
+    logger.warning("Redis unreachable at startup ... Falling back to the in-memory store")
+    return None
+```
+
+If the ping fails, the app selects `InMemoryRedis` (`backend/app/cache/memory_store.py`) instead. `backend/app/queue.py` follows the same signal and swaps RQ for `LocalQueue`, a `ThreadPoolExecutor` running jobs in-process.
+
+### What changes when Redis is down
+
+| Area | With Redis | In fallback mode |
+| --- | --- | --- |
+| Profile cache | `profile:{username}`, 24h TTL | Same API, dict-backed, 24h TTL |
+| Chat sessions | `chat:{session_id}` in Redis | Same API, dict-backed |
+| Job queue | RQ worker in a separate process | Thread pool inside the web process |
+| Job de-duplication | `in_progress:{username}` lock | Same lock, process-local |
+| `python worker.py` | Runs and processes jobs | Exits `1` with a clear message |
+| Survival across restarts | Yes | **No** — everything is in memory |
+
+Everything user-facing behaves identically. You lose persistence across deploys and restarts, nothing else.
+
+### Startup warning
+
+Look for this line in the logs:
+
+```
+WARNING app.cache.redis_client: Redis unreachable at startup (ConnectionError: ...).
+Falling back to the in-process store: caching, job locks and chat sessions will not
+survive a restart, and background jobs run in-process instead of via RQ.
+```
+
+The fallback is deliberately loud. If you would rather fail fast than silently degrade, wrap startup in `get_client()` and assert `is_redis_backed()`.
+
+### How to fix it properly
+
+The fallback keeps the demo alive; it does not fix the underlying host. To restore Redis:
+
+1. In your Redis provider's dashboard, confirm the instance still exists. Free tiers are commonly **deleted after ~30 days of inactivity**, along with their DNS records.
+2. Copy the current connection string.
+3. Set it as the `REDIS_URL` environment variable on the backend service and redeploy.
+
+Two things to check when copying the string:
+
+- Use **`rediss://`**, not `redis://` — managed Redis requires TLS. A `redis://` URL against a TLS port fails the handshake.
+- Percent-encode special characters in the password (`@` → `%40`, `/` → `%2F`, `#` → `%23`), otherwise the URL parses incorrectly and you get a misleading DNS error.
+
+Verify the host actually resolves before redeploying:
+
+```bash
+python -c "import socket; print(socket.getaddrinfo('<your-host>', 19302)[0][4])"
+```
+
+A `gaierror` means the host is gone, not that your code is wrong.
 
 ---
 
@@ -431,8 +497,10 @@ curl -OJ http://localhost:8000/api/v1/report/octocat?format=pdf
 | Job ID not found | `404` |
 | GitHub rate limit exceeded | `429` |
 | GitHub request timeout | `504` / `529` for search |
-| Redis unavailable | `503` |
+| Redis lost mid-request (after startup probe passed) | `503` |
 | Analysis worker failure | `500` |
+
+> Redis being unreachable **at startup** does not produce an error — it produces the in-process fallback described in [Redis Unavailable Fallback](#redis-unavailable-fallback). The `503` above is for a connection that drops after the service is already running.
 
 ---
 

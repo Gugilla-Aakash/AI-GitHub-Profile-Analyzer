@@ -10,35 +10,32 @@ MODULE_PATH = "app.cache.chat_cache"
 
 @pytest.fixture
 def chat_cache_module():
-    with (
-        patch("redis.Redis.from_url") as mock_from_url,
-        patch("app.config.settings") as mock_settings,
-    ):
+    with patch("app.config.settings") as mock_settings:
         mock_settings.REDIS_URL = "redis://fake:6379/0"
         mock_settings.CACHE_TTL = 300
 
         mock_redis_instance = MagicMock()
-        mock_from_url.return_value = mock_redis_instance
 
-        sys.modules.pop(MODULE_PATH, None)
-        module = importlib.import_module(MODULE_PATH)
+        # The cache now resolves its backend through the shared factory, so
+        # inject the client instead of patching redis.Redis.from_url.
+        with patch(
+            "app.cache.redis_client.get_client", return_value=mock_redis_instance
+        ):
+            sys.modules.pop(MODULE_PATH, None)
+            module = importlib.import_module(MODULE_PATH)
 
-        yield module, mock_redis_instance, mock_settings
+            yield module, mock_redis_instance, mock_settings
 
-        sys.modules.pop(MODULE_PATH, None)
+            sys.modules.pop(MODULE_PATH, None)
 
 
 class TestInitAndKeying:
-    def test_creates_redis_client_from_url(self, chat_cache_module):
-        module, _, mock_settings = chat_cache_module
+    def test_uses_the_shared_client_factory(self, chat_cache_module):
+        module, mock_redis, _ = chat_cache_module
 
-        with patch("redis.Redis.from_url") as mock_from_url:
-            module.ChatCache()
+        cache = module.ChatCache()
 
-            mock_from_url.assert_called_once_with(
-                mock_settings.REDIS_URL,
-                decode_responses=True,
-            )
+        assert cache.redis is mock_redis
 
     def test_key_namespaces_session_id(self, chat_cache_module):
         module, _, _ = chat_cache_module

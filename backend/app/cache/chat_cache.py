@@ -2,8 +2,7 @@ import json
 import logging
 from typing import Any
 
-import redis
-
+from app.cache.redis_client import get_client
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -15,10 +14,8 @@ class ChatCache:
     PREFIX = "chat:"
 
     def __init__(self) -> None:
-        self.redis = redis.Redis.from_url(
-            settings.REDIS_URL,
-            decode_responses=True,
-        )
+        """Initializes the chat backend (real Redis, or in-process fallback)."""
+        self.redis = get_client()
         self.ttl = settings.CACHE_TTL
 
     def _key(self, session_id: str) -> str:

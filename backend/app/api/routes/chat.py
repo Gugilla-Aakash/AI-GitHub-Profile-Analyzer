@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from redis.exceptions import RedisError
 
 from app.cache.chat_cache import ChatCache
 from app.cache.simple_cache import cache
@@ -25,7 +26,13 @@ class ChatRequest(BaseModel):
 @router.post("/start/{username}")
 def start_chat(username: str):
     normalized_username = username.strip().lower()
-    profile_data = cache.get_profile(normalized_username)
+    try:
+        profile_data = cache.get_profile(normalized_username)
+    except RedisError as exc:
+        logger.error("Redis unavailable while starting chat: %s", exc)
+        raise HTTPException(
+            status_code=503, detail="Storage backend unavailable."
+        ) from exc
     if profile_data is None:
         raise HTTPException(
             status_code=404, detail="Profile not found. Analyze the profile first."
@@ -46,7 +53,13 @@ def start_chat(username: str):
 
 @router.post("/message")
 def send_message(request: ChatRequest):
-    session = chat_cache.get_session(request.session_id)
+    try:
+        session = chat_cache.get_session(request.session_id)
+    except RedisError as exc:
+        logger.error("Redis unavailable while reading chat session: %s", exc)
+        raise HTTPException(
+            status_code=503, detail="Storage backend unavailable."
+        ) from exc
     if session is None:
         raise HTTPException(
             status_code=404, detail="Chat session expired or not found."

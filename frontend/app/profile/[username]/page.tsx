@@ -127,9 +127,20 @@ export default function ProfilePage() {
       (error as Error)?.message ||
       currentJob?.message ||
       "An unexpected error occurred.";
-    const formattedError =
-      rawErrorMessage === "Not Found"
-        ? `GitHub user "@${username}" was not found or backend service is unreachable.`
+
+    // Distinguish infrastructure failures from genuine "no such user" results
+    // so reviewers aren't told a profile is missing when the backend is down.
+    const isStorageIssue = /storage backend|unable to connect redis|temporarily/i.test(
+      rawErrorMessage,
+    );
+    const isNotFound =
+      rawErrorMessage === "Not Found" ||
+      /not found|does not exist|cannot be analyzed/i.test(rawErrorMessage);
+
+    const formattedError = isStorageIssue
+      ? "The analysis service is temporarily unavailable. Please try again in a moment."
+      : isNotFound
+        ? `GitHub user "@${username}" was not found, is an organization account, or the backend service is unreachable.`
         : rawErrorMessage;
 
     return (

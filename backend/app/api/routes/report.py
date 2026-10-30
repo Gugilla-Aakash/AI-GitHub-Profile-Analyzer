@@ -2,6 +2,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Response
+from redis.exceptions import RedisError
 
 from app.cache.simple_cache import cache
 from app.reports.markdown_report import generate_markdown_report
@@ -22,7 +23,13 @@ def get_report(
     """
     Generate and download an audit report for a GitHub profile in Markdown or PDF format
     """
-    profile_data = cache.get_profile(username.lower())
+    try:
+        profile_data = cache.get_profile(username.lower())
+    except RedisError as exc:
+        logger.error("Redis unavailable while building report: %s", exc)
+        raise HTTPException(
+            status_code=503, detail="Storage backend unavailable."
+        ) from exc
 
     if not profile_data:
         raise HTTPException(
